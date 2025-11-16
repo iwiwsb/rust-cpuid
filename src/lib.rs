@@ -304,8 +304,17 @@ const EAX_SOC_VENDOR_INFO: u32 = 0x17;
 const EAX_DETERMINISTIC_ADDRESS_TRANSLATION_INFO: u32 = 0x18;
 const EAX_EXTENDED_TOPOLOGY_INFO_V2: u32 = 0x1F;
 
-/// Hypervisor leaf
+// Hypervisor leafs:
 const EAX_HYPERVISOR_INFO: u32 = 0x4000_0000;
+const EAX_HYPERVISOR_INTERFACE_SIGNATURE: u32 = 0x4000_0001;
+// Microsoft Hyper-V CPUID leafs:
+const EAX_MS_HYPERV_SYSTEM_IDENTITY: u32 = 0x4000_0002;
+const EAX_MS_HYPERV_FEATURE_IDENTIFICATION: u32 = 0x4000_0003;
+const EAX_MS_HYPERV_IMPLEMENTATION_RECOMMENDATIONS: u32 = 0x4000_0004;
+const EAX_MS_HYPERV_IMPLEMENTATION_LIMITS: u32 = 0x4000_0005;
+const EAX_MS_HYPERV_IMPLEMENTATION_HARDWARE_FEATURES: u32 = 0x4000_0006;
+const EAX_MS_HYPERV_NESTED_FEATURE_IDENTIFICATION: u32 = 0x4000_0009;
+const EAX_MS_HYPERV_NESTED_VIRTUALIZATION_FEATURES: u32 = 0x4000_000A;
 
 //
 // Extended leafs:
@@ -6006,6 +6015,63 @@ impl<R: CpuIdReader> HypervisorInfo<R> {
         }
     }
 
+    pub fn interface(&self) -> Option<u32> {
+        let eax = self.res.eax;
+        if eax >= EAX_HYPERVISOR_INTERFACE_SIGNATURE {
+            let interface_signature = self.read.cpuid1(eax);
+            Some(interface_signature.eax)
+        } else {
+            None
+        }
+    }
+
+    pub fn hyperv_system_identity(&self) -> Option<HyperVSystemIdentity> {
+        let eax = self.res.eax;
+        if eax >= EAX_MS_HYPERV_SYSTEM_IDENTITY && self.interface() == Some(0x31237648) {
+            let system_identity = self.read.cpuid1(EAX_MS_HYPERV_SYSTEM_IDENTITY);
+            Some(HyperVSystemIdentity {
+                eax: system_identity.eax,
+                ebx: system_identity.ebx,
+            })
+        } else {
+            None
+        }
+    }
+
+    pub fn hyperv_features(&self) -> Option<HyperVFeatures> {
+        let eax = self.res.eax;
+        if eax >= EAX_MS_HYPERV_FEATURE_IDENTIFICATION && self.interface() == Some(0x31237648) {
+            let features = self.read.cpuid1(eax);
+            Some(HyperVFeatures {
+                eax: features.eax,
+                ebx: features.ebx,
+                ecx: features.ecx,
+                edx: features.edx,
+            })
+        } else {
+            None
+        }
+    }
+
+    pub fn hyperv_implementation_recommendations(
+        &self,
+    ) -> Option<HyperVImplRecommendations> {
+        let eax = self.res.eax;
+        if eax >= EAX_MS_HYPERV_IMPLEMENTATION_RECOMMENDATIONS
+            && self.interface() == Some(0x31237648)
+        {
+            let recommendations = self.read.cpuid1(eax);
+            Some(HyperVImplRecommendations {
+                eax: recommendations.eax,
+                ebx: recommendations.ebx,
+                ecx: recommendations.ecx,
+                edx: recommendations.edx,
+            })
+        } else {
+            None
+        }
+    }
+
     /// TSC frequency in kHz.
     pub fn tsc_frequency(&self) -> Option<u32> {
         // vm aware tsc frequency retrieval:
@@ -6028,6 +6094,79 @@ impl<R: CpuIdReader> HypervisorInfo<R> {
             None
         }
     }
+}
+
+pub struct HyperVSystemIdentity {
+    eax: u32,
+    ebx: u32,
+}
+
+impl HyperVSystemIdentity {
+    pub fn build_number(&self) -> u32 {
+        self.eax
+    }
+
+    pub fn major_version(&self) -> u32 {
+        get_bits(self.ebx, 16, 31)
+    }
+
+    pub fn minor_version(&self) -> u32 {
+        get_bits(self.ebx, 0, 15)
+    }
+}
+
+pub struct HyperVFeatures {
+    eax: u32,
+    ebx: u32,
+    ecx: u32,
+    edx: u32,
+}
+
+impl HyperVFeatures {
+    pub fn hv_partition_privelege_mask(&self) -> u64 {
+        (self.eax << 32 | self.ebx) as u64
+    }
+
+    pub fn invariant_mperf_available(&self) -> bool {
+        get_bits(self.ecx, 5, 5) == 1
+    }
+
+    pub fn supervisor_shadow_stack_available(&self) -> bool {
+        get_bits(self.ecx, 6, 6) == 1
+    }
+
+    pub fn architectural_pmu_available(&self) -> bool {
+        get_bits(self.ecx, 7, 7) == 1
+    }
+
+    pub fn exception_trap_intercept_available(&self) -> bool {
+        get_bits(self.ecx, 8, 8) == 1
+    }
+
+    pub fn guest_debugging_support_available(&self) -> bool {
+        get_bits(self.edx, 1, 1) == 1
+    }
+}
+
+pub struct HyperVImplRecommendations {
+    eax: u32,
+    ebx: u32,
+    ecx: u32,
+    edx: u32,
+}
+
+pub struct HyperVImplLimits {
+    eax: u32,
+    ebx: u32,
+    ecx: u32,
+    edx: u32,
+}
+
+pub struct HyperVImplHardwareFeatures {
+    eax: u32,
+    ebx: u32,
+    ecx: u32,
+    edx: u32,
 }
 
 #[cfg(doctest)]
