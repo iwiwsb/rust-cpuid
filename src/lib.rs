@@ -803,11 +803,13 @@ impl<R: CpuIdReader> CpuId<R> {
         self.get_feature_info()
             .filter(|fi| fi.has_hypervisor())
             .and_then(|_| {
-                let res = self.read.cpuid1(EAX_HYPERVISOR_INFO);
-                if res.eax > 0 {
+                let hypervisor_info = self.read.cpuid1(EAX_HYPERVISOR_INFO);
+                let interface_signature = self.read.cpuid1(EAX_HYPERVISOR_INTERFACE_SIGNATURE);
+                if hypervisor_info.eax > 0 && interface_signature.eax > 0 {
                     Some(HypervisorInfo {
                         read: self.read.clone(),
-                        res,
+                        hypervisor_info,
+                        interface_signature,
                     })
                 } else {
                     None
@@ -5939,13 +5941,16 @@ impl fmt::Display for SoCVendorBrand {
     }
 }
 
+const HYPERV_INTERFACE: u32 = 0x31237648;
+
 /// Information about Hypervisor (LEAF=0x4000_0001)
 ///
 /// More information about this semi-official leaf can be found here
 /// <https://lwn.net/Articles/301888/>
 pub struct HypervisorInfo<R: CpuIdReader> {
     read: R,
-    res: CpuIdResult,
+    hypervisor_info: CpuIdResult,
+    interface_signature: CpuIdResult,
 }
 
 impl<R: CpuIdReader> fmt::Debug for HypervisorInfo<R> {
@@ -5986,7 +5991,11 @@ impl<R: CpuIdReader> HypervisorInfo<R> {
     /// have an ID, you find cumulated lists with all kinds of IDs on Github
     /// relatively easy.
     pub fn identify(&self) -> Hypervisor {
-        match (self.res.ebx, self.res.ecx, self.res.edx) {
+        match (
+            self.hypervisor_info.ebx,
+            self.hypervisor_info.ecx,
+            self.hypervisor_info.edx,
+        ) {
             // "VMwareVMware" (0x56 => V, 0x4d => M, ...)
             (0x61774d56, 0x4d566572, 0x65726177) => Hypervisor::VMware,
             // "XenVMMXenVMM"
@@ -6015,19 +6024,13 @@ impl<R: CpuIdReader> HypervisorInfo<R> {
         }
     }
 
-    pub fn interface(&self) -> Option<u32> {
-        let eax = self.res.eax;
-        if eax >= EAX_HYPERVISOR_INTERFACE_SIGNATURE {
-            let interface_signature = self.read.cpuid1(eax);
-            Some(interface_signature.eax)
-        } else {
-            None
-        }
+    pub fn interface(&self) -> u32 {
+        self.interface_signature.eax
     }
 
     pub fn hyperv_system_identity(&self) -> Option<HyperVSystemIdentity> {
-        let eax = self.res.eax;
-        if eax >= EAX_MS_HYPERV_SYSTEM_IDENTITY && self.interface() == Some(0x31237648) {
+        let eax = self.hypervisor_info.eax;
+        if eax >= EAX_MS_HYPERV_SYSTEM_IDENTITY && self.interface() == HYPERV_INTERFACE {
             let system_identity = self.read.cpuid1(EAX_MS_HYPERV_SYSTEM_IDENTITY);
             Some(HyperVSystemIdentity {
                 eax: system_identity.eax,
@@ -6039,8 +6042,8 @@ impl<R: CpuIdReader> HypervisorInfo<R> {
     }
 
     pub fn hyperv_features(&self) -> Option<HyperVFeatures> {
-        let eax = self.res.eax;
-        if eax >= EAX_MS_HYPERV_FEATURE_IDENTIFICATION && self.interface() == Some(0x31237648) {
+        let eax = self.hypervisor_info.eax;
+        if eax >= EAX_MS_HYPERV_FEATURE_IDENTIFICATION && self.interface() == HYPERV_INTERFACE {
             let features = self.read.cpuid1(eax);
             Some(HyperVFeatures {
                 eax: features.eax,
@@ -6053,12 +6056,10 @@ impl<R: CpuIdReader> HypervisorInfo<R> {
         }
     }
 
-    pub fn hyperv_implementation_recommendations(
-        &self,
-    ) -> Option<HyperVImplRecommendations> {
-        let eax = self.res.eax;
+    pub fn hyperv_implementation_recommendations(&self) -> Option<HyperVImplRecommendations> {
+        let eax = self.hypervisor_info.eax;
         if eax >= EAX_MS_HYPERV_IMPLEMENTATION_RECOMMENDATIONS
-            && self.interface() == Some(0x31237648)
+            && self.interface() == HYPERV_INTERFACE
         {
             let recommendations = self.read.cpuid1(eax);
             Some(HyperVImplRecommendations {
@@ -6072,11 +6073,26 @@ impl<R: CpuIdReader> HypervisorInfo<R> {
         }
     }
 
+    pub fn hyperv_implementation_limits(&self) -> Option<HyperVImplLimits> {
+        let eax = self.hypervisor_info.eax;
+        if eax >= EAX_MS_HYPERV_IMPLEMENTATION_LIMITS && self.interface() == HYPERV_INTERFACE {
+            let limits = self.read.cpuid1(eax);
+            Some(HyperVImplLimits {
+                eax: limits.eax,
+                ebx: limits.ebx,
+                ecx: limits.ecx,
+                _edx: limits.edx,
+            })
+        } else {
+            None
+        }
+    }
+
     /// TSC frequency in kHz.
     pub fn tsc_frequency(&self) -> Option<u32> {
         // vm aware tsc frequency retrieval:
         // # EAX: (Virtual) TSC frequency in kHz.
-        if self.res.eax >= 0x40000010 {
+        if self.hypervisor_info.eax >= 0x40000010 {
             let virt_tinfo = self.read.cpuid2(0x40000010, 0);
             Some(virt_tinfo.eax)
         } else {
@@ -6087,7 +6103,7 @@ impl<R: CpuIdReader> HypervisorInfo<R> {
     /// (Virtual) Bus (local apic timer) frequency in kHz.
     pub fn apic_frequency(&self) -> Option<u32> {
         // # EBX: (Virtual) Bus (local apic timer) frequency in kHz.
-        if self.res.eax >= 0x40000010 {
+        if self.hypervisor_info.eax >= 0x40000010 {
             let virt_tinfo = self.read.cpuid2(0x40000010, 0);
             Some(virt_tinfo.ebx)
         } else {
@@ -6115,6 +6131,7 @@ impl HyperVSystemIdentity {
     }
 }
 
+/// EAX and EBX indicate which features are available to the partition based upon the current partition privileges
 pub struct HyperVFeatures {
     eax: u32,
     ebx: u32,
@@ -6148,6 +6165,7 @@ impl HyperVFeatures {
     }
 }
 
+/// Indicates which behaviors the hypervisor recommends the OS implement for optimal performance
 pub struct HyperVImplRecommendations {
     eax: u32,
     ebx: u32,
@@ -6155,11 +6173,26 @@ pub struct HyperVImplRecommendations {
     edx: u32,
 }
 
+/// Describes the scale limits supported in the current hypervisor implementation. If any value is zero, the hypervisor does not expose the corresponding information
 pub struct HyperVImplLimits {
     eax: u32,
     ebx: u32,
     ecx: u32,
-    edx: u32,
+    _edx: u32,
+}
+
+impl HyperVImplLimits {
+    pub fn max_virtual_processors(&self) -> u32 {
+        self.eax
+    }
+
+    pub fn max_logical_processors(&self) -> u32 {
+        self.ebx
+    }
+
+    pub fn max_interrupt_vectors(&self) -> u32 {
+        self.ecx
+    }
 }
 
 pub struct HyperVImplHardwareFeatures {
