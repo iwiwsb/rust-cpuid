@@ -308,13 +308,13 @@ const EAX_EXTENDED_TOPOLOGY_INFO_V2: u32 = 0x1F;
 const EAX_HYPERVISOR_INFO: u32 = 0x4000_0000;
 const EAX_HYPERVISOR_INTERFACE_SIGNATURE: u32 = 0x4000_0001;
 // Microsoft Hyper-V CPUID leafs:
-const EAX_MS_HYPERV_SYSTEM_IDENTITY: u32 = 0x4000_0002;
-const EAX_MS_HYPERV_FEATURE_IDENTIFICATION: u32 = 0x4000_0003;
-const EAX_MS_HYPERV_IMPLEMENTATION_RECOMMENDATIONS: u32 = 0x4000_0004;
-const EAX_MS_HYPERV_IMPLEMENTATION_LIMITS: u32 = 0x4000_0005;
-const EAX_MS_HYPERV_IMPLEMENTATION_HARDWARE_FEATURES: u32 = 0x4000_0006;
-const EAX_MS_HYPERV_NESTED_FEATURE_IDENTIFICATION: u32 = 0x4000_0009;
-const EAX_MS_HYPERV_NESTED_VIRTUALIZATION_FEATURES: u32 = 0x4000_000A;
+const EAX_MS_HV_SYSTEM_IDENTITY: u32 = 0x4000_0002;
+const EAX_MS_HV_FEATURE_IDENTIFICATION: u32 = 0x4000_0003;
+const EAX_MS_HV_IMPLEMENTATION_RECOMMENDATIONS: u32 = 0x4000_0004;
+const EAX_MS_HV_IMPLEMENTATION_LIMITS: u32 = 0x4000_0005;
+const EAX_MS_HV_IMPLEMENTATION_HARDWARE_FEATURES: u32 = 0x4000_0006;
+const EAX_MS_HV_NESTED_FEATURE_IDENTIFICATION: u32 = 0x4000_0009;
+const EAX_MS_HV_NESTED_VIRTUALIZATION_FEATURES: u32 = 0x4000_000A;
 
 //
 // Extended leafs:
@@ -5941,7 +5941,7 @@ impl fmt::Display for SoCVendorBrand {
     }
 }
 
-const HYPERV_INTERFACE: u32 = 0x31237648;
+const HV_INTERFACE: u32 = 0x31237648;
 
 /// Information about Hypervisor (LEAF=0x4000_0001)
 ///
@@ -6028,11 +6028,11 @@ impl<R: CpuIdReader> HypervisorInfo<R> {
         self.interface_signature.eax
     }
 
-    pub fn hyperv_system_identity(&self) -> Option<HyperVSystemIdentity> {
+    pub fn hv_system_identity(&self) -> Option<HvSystemIdentity> {
         let eax = self.hypervisor_info.eax;
-        if eax >= EAX_MS_HYPERV_SYSTEM_IDENTITY && self.interface() == HYPERV_INTERFACE {
-            let system_identity = self.read.cpuid1(EAX_MS_HYPERV_SYSTEM_IDENTITY);
-            Some(HyperVSystemIdentity {
+        if eax >= EAX_MS_HV_SYSTEM_IDENTITY && self.interface() == HV_INTERFACE {
+            let system_identity = self.read.cpuid1(EAX_MS_HV_SYSTEM_IDENTITY);
+            Some(HvSystemIdentity {
                 eax: system_identity.eax,
                 ebx: system_identity.ebx,
             })
@@ -6041,14 +6041,15 @@ impl<R: CpuIdReader> HypervisorInfo<R> {
         }
     }
 
-    pub fn hyperv_features(&self) -> Option<HyperVFeatures> {
+    pub fn hv_features(&self) -> Option<HvFeatures> {
         let eax = self.hypervisor_info.eax;
-        if eax >= EAX_MS_HYPERV_FEATURE_IDENTIFICATION && self.interface() == HYPERV_INTERFACE {
+        if eax >= EAX_MS_HV_FEATURE_IDENTIFICATION && self.interface() == HV_INTERFACE {
             let features = self.read.cpuid1(eax);
-            Some(HyperVFeatures {
-                eax: features.eax,
-                ebx: features.ebx,
-                ecx: features.ecx,
+            Some(HvFeatures {
+                eax_ebx: HvPartitionPrivilegeMask::from_bits_retain(
+                    (features.ebx << 32 | features.eax) as u64,
+                ),
+                ecx: HvFeaturesFlagsEcx::from_bits_retain(features.ecx),
                 edx: features.edx,
             })
         } else {
@@ -6056,13 +6057,11 @@ impl<R: CpuIdReader> HypervisorInfo<R> {
         }
     }
 
-    pub fn hyperv_implementation_recommendations(&self) -> Option<HyperVImplRecommendations> {
+    pub fn hv_implementation_recommendations(&self) -> Option<HvImplRecommendations> {
         let eax = self.hypervisor_info.eax;
-        if eax >= EAX_MS_HYPERV_IMPLEMENTATION_RECOMMENDATIONS
-            && self.interface() == HYPERV_INTERFACE
-        {
+        if eax >= EAX_MS_HV_IMPLEMENTATION_RECOMMENDATIONS && self.interface() == HV_INTERFACE {
             let recommendations = self.read.cpuid1(eax);
-            Some(HyperVImplRecommendations {
+            Some(HvImplRecommendations {
                 eax: recommendations.eax,
                 ebx: recommendations.ebx,
                 ecx: recommendations.ecx,
@@ -6073,11 +6072,11 @@ impl<R: CpuIdReader> HypervisorInfo<R> {
         }
     }
 
-    pub fn hyperv_implementation_limits(&self) -> Option<HyperVImplLimits> {
+    pub fn hv_implementation_limits(&self) -> Option<HvImplLimits> {
         let eax = self.hypervisor_info.eax;
-        if eax >= EAX_MS_HYPERV_IMPLEMENTATION_LIMITS && self.interface() == HYPERV_INTERFACE {
+        if eax >= EAX_MS_HV_IMPLEMENTATION_LIMITS && self.interface() == HV_INTERFACE {
             let limits = self.read.cpuid1(eax);
-            Some(HyperVImplLimits {
+            Some(HvImplLimits {
                 eax: limits.eax,
                 ebx: limits.ebx,
                 ecx: limits.ecx,
@@ -6112,12 +6111,12 @@ impl<R: CpuIdReader> HypervisorInfo<R> {
     }
 }
 
-pub struct HyperVSystemIdentity {
+pub struct HvSystemIdentity {
     eax: u32,
     ebx: u32,
 }
 
-impl HyperVSystemIdentity {
+impl HvSystemIdentity {
     pub fn build_number(&self) -> u32 {
         self.eax
     }
@@ -6131,34 +6130,68 @@ impl HyperVSystemIdentity {
     }
 }
 
+bitflags! {
+    struct HvPartitionPrivilegeMask: u64 {
+        const ACCESS_VP_RUN_TIME_REG = 0;
+        const ACCESS_PARTITION_REFERENCE_COUNTER = 1;
+        const ACCESS_SYNIC_REGS = 1 << 1;
+        const ACCESS_SYNTHETIC_TIMER_REGS = 1 << 2;
+        const ACCESS_INTR_CTRL_REGS = 1 << 3;
+    }
+}
+
+bitflags! {
+    struct HvFeaturesFlagsEcx: u32 {
+        const INVARIANT_MPERF = 1 << 4;
+        const SUPERVISOR_SHADOW_STACK = 1 << 5;
+        const ARCHITECTURAL_PMU = 1 << 6;
+        const EXCEPTION_TRAP_INTERCEPT = 1 << 7;
+    }
+}
+
+bitflags! {
+    struct HvFeaturesFlagsEdx: u32 {
+        const GUEST_DEBUGGING_SUPPORT = 1;
+        const PERFORMANCE_MONITOR_SUPPORT = 1 << 1;
+        const PHYSICAL_CPU_DYNAMIC_PARTITIONING_SUPPORT = 1 << 2;
+    }
+}
+
 /// EAX and EBX indicate which features are available to the partition based upon the current partition privileges
-pub struct HyperVFeatures {
-    eax: u32,
-    ebx: u32,
-    ecx: u32,
+pub struct HvFeatures {
+    eax_ebx: HvPartitionPrivilegeMask,
+    ecx: HvFeaturesFlagsEcx,
     edx: u32,
 }
 
-impl HyperVFeatures {
-    pub fn hv_partition_privelege_mask(&self) -> u64 {
-        (self.eax << 32 | self.ebx) as u64
-    }
+impl HvFeatures {
+    check_flag!(
+        doc = "Invariant Mperf is available",
+        invariant_mperf,
+        ecx,
+        HvFeaturesFlagsEcx::INVARIANT_MPERF
+    );
 
-    pub fn invariant_mperf_available(&self) -> bool {
-        get_bits(self.ecx, 5, 5) == 1
-    }
+    check_flag!(
+        doc = "Supervisor shadow stack is available",
+        supervisor_shadow_stack,
+        ecx,
+        HvFeaturesFlagsEcx::SUPERVISOR_SHADOW_STACK
+    );
 
-    pub fn supervisor_shadow_stack_available(&self) -> bool {
-        get_bits(self.ecx, 6, 6) == 1
-    }
+    check_flag!(
+        doc = "Architectural PMU is available",
+        architectural_pmu,
+        ecx,
+        HvFeaturesFlagsEcx::ARCHITECTURAL_PMU
+    );
 
-    pub fn architectural_pmu_available(&self) -> bool {
-        get_bits(self.ecx, 7, 7) == 1
-    }
-
-    pub fn exception_trap_intercept_available(&self) -> bool {
-        get_bits(self.ecx, 8, 8) == 1
-    }
+    check_flag!(
+        doc = "Exception trap intercept is available",
+        exception_trap_intercept,
+        ecx,
+        HvFeaturesFlagsEcx::EXCEPTION_TRAP_INTERCEPT
+    );
 
     pub fn guest_debugging_support_available(&self) -> bool {
         get_bits(self.edx, 1, 1) == 1
@@ -6166,7 +6199,7 @@ impl HyperVFeatures {
 }
 
 /// Indicates which behaviors the hypervisor recommends the OS implement for optimal performance
-pub struct HyperVImplRecommendations {
+pub struct HvImplRecommendations {
     eax: u32,
     ebx: u32,
     ecx: u32,
@@ -6174,14 +6207,14 @@ pub struct HyperVImplRecommendations {
 }
 
 /// Describes the scale limits supported in the current hypervisor implementation. If any value is zero, the hypervisor does not expose the corresponding information
-pub struct HyperVImplLimits {
+pub struct HvImplLimits {
     eax: u32,
     ebx: u32,
     ecx: u32,
     _edx: u32,
 }
 
-impl HyperVImplLimits {
+impl HvImplLimits {
     pub fn max_virtual_processors(&self) -> u32 {
         self.eax
     }
@@ -6195,7 +6228,7 @@ impl HyperVImplLimits {
     }
 }
 
-pub struct HyperVImplHardwareFeatures {
+pub struct HvImplHardwareFeatures {
     eax: u32,
     ebx: u32,
     ecx: u32,
