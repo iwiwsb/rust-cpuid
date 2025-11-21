@@ -6050,7 +6050,7 @@ impl<R: CpuIdReader> HypervisorInfo<R> {
                     (features.ebx << 32 | features.eax) as u64,
                 ),
                 ecx: HvFeaturesFlagsEcx::from_bits_retain(features.ecx),
-                edx: features.edx,
+                edx: HvFeaturesFlagsEdx::from_bits_retain(features.edx),
             })
         } else {
             None
@@ -6151,9 +6151,28 @@ bitflags! {
 
 bitflags! {
     struct HvFeaturesFlagsEdx: u32 {
-        const GUEST_DEBUGGING_SUPPORT = 1;
-        const PERFORMANCE_MONITOR_SUPPORT = 1 << 1;
-        const PHYSICAL_CPU_DYNAMIC_PARTITIONING_SUPPORT = 1 << 2;
+        const GUEST_DEBUGGING = 1;
+        const PERFORMANCE_MONITOR = 1 << 1;
+        const PHYSICAL_CPU_DYNAMIC_PARTITIONING = 1 << 2;
+        const PASSING_HYPERCALL_INPUT_PARAMETER_BLOCK_VIA_XMM_REGISTERS = 1 << 3;
+        const VIRTUAL_GUEST_IDLE_STATE = 1 << 4;
+        const HYPERVISOR_SLEEP_STATE = 1 << 5;
+        const QUERYING_NUMA_DISTANCES = 1 << 6;
+        const DETERMINING_TIMER_FREQUENCIES = 1 << 7;
+        const INJECTING_SYNTHETIC_MACHINE_CHECKS = 1 << 8;
+        const GUEST_CRASH_MSRS = 1 << 9;
+        const DEBUG_MSRS = 1 << 10;
+        const NPIEP = 1 << 11;
+        const DISABLE_HYPERVISOR = 1 << 12;
+        const EXTENDED_GVA_RANGES_FOR_FLUSH_VIRTUAL_ADDRESS_LIST = 1 << 13;
+        const RETURNING_HYPERCALL_OUTPUT_VIA_XMM_REGISTERS = 1 << 14;
+        const SINT_POLLING_MODE = 1 << 16;
+        const HYPERCALL_MSR_LOCK = 1 << 17;
+        const USE_DIRECT_SYNTHETIC_TIMERS = 1 << 18;
+        const PAT_REGISTER_AVAILABLE_FOR_VSM = 1 << 19;
+        const BNDCFGS_REGISTER_AVAILABLE_FOR_VSM = 1 << 20;
+        const SYNTHETIC_TIME_UNHALTED_TIMER = 1 << 22;
+        const INTEL_LAST_BRANCH_RECORD = 1 << 25;
     }
 }
 
@@ -6161,7 +6180,7 @@ bitflags! {
 pub struct HvFeatures {
     eax_ebx: HvPartitionPrivilegeMask,
     ecx: HvFeaturesFlagsEcx,
-    edx: u32,
+    edx: HvFeaturesFlagsEdx,
 }
 
 impl HvFeatures {
@@ -6193,9 +6212,12 @@ impl HvFeatures {
         HvFeaturesFlagsEcx::EXCEPTION_TRAP_INTERCEPT
     );
 
-    pub fn guest_debugging_support_available(&self) -> bool {
-        get_bits(self.edx, 1, 1) == 1
-    }
+    check_flag!(
+        doc = "Guest debugging support is available",
+        guest_debugging_support,
+        edx,
+        HvFeaturesFlagsEdx::GUEST_DEBUGGING
+    );
 }
 
 /// Indicates which behaviors the hypervisor recommends the OS implement for optimal performance
