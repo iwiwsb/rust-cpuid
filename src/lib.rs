@@ -309,11 +309,11 @@ const EAX_HYPERVISOR_INFO: u32 = 0x4000_0000;
 const EAX_HYPERVISOR_INTERFACE_SIGNATURE: u32 = 0x4000_0001;
 // Microsoft Hyper-V CPUID leafs:
 const EAX_MS_HV_SYSTEM_IDENTITY: u32 = 0x4000_0002;
-const EAX_MS_HV_FEATURE_IDENTIFICATION: u32 = 0x4000_0003;
+const EAX_MS_HV_FEATURES: u32 = 0x4000_0003;
 const EAX_MS_HV_IMPLEMENTATION_RECOMMENDATIONS: u32 = 0x4000_0004;
 const EAX_MS_HV_IMPLEMENTATION_LIMITS: u32 = 0x4000_0005;
 const EAX_MS_HV_IMPLEMENTATION_HARDWARE_FEATURES: u32 = 0x4000_0006;
-const EAX_MS_HV_NESTED_FEATURE_IDENTIFICATION: u32 = 0x4000_0009;
+const EAX_MS_HV_NESTED_FEATURES: u32 = 0x4000_0009;
 const EAX_MS_HV_NESTED_VIRTUALIZATION_FEATURES: u32 = 0x4000_000A;
 
 //
@@ -6029,12 +6029,14 @@ impl<R: CpuIdReader> HypervisorInfo<R> {
     }
 
     pub fn hv_system_identity(&self) -> Option<HvSystemIdentity> {
-        let eax = self.hypervisor_info.eax;
-        if eax >= EAX_MS_HV_SYSTEM_IDENTITY && self.interface() == HV_INTERFACE {
+        if self.hypervisor_info.eax >= EAX_MS_HV_SYSTEM_IDENTITY && self.interface() == HV_INTERFACE
+        {
             let system_identity = self.read.cpuid1(EAX_MS_HV_SYSTEM_IDENTITY);
             Some(HvSystemIdentity {
                 eax: system_identity.eax,
                 ebx: system_identity.ebx,
+                _ecx: system_identity.ecx,
+                _edx: system_identity.edx,
             })
         } else {
             None
@@ -6042,9 +6044,8 @@ impl<R: CpuIdReader> HypervisorInfo<R> {
     }
 
     pub fn hv_features(&self) -> Option<HvFeatures> {
-        let eax = self.hypervisor_info.eax;
-        if eax >= EAX_MS_HV_FEATURE_IDENTIFICATION && self.interface() == HV_INTERFACE {
-            let features = self.read.cpuid1(eax);
+        if self.hypervisor_info.eax >= EAX_MS_HV_FEATURES && self.interface() == HV_INTERFACE {
+            let features = self.read.cpuid1(EAX_MS_HV_FEATURES);
             Some(HvFeatures {
                 eax_ebx: HvPartitionPrivilegeMask::from_bits_retain(
                     (features.ebx << 32 | features.eax) as u64,
@@ -6058,9 +6059,10 @@ impl<R: CpuIdReader> HypervisorInfo<R> {
     }
 
     pub fn hv_implementation_recommendations(&self) -> Option<HvImplRecommendations> {
-        let eax = self.hypervisor_info.eax;
-        if eax >= EAX_MS_HV_IMPLEMENTATION_RECOMMENDATIONS && self.interface() == HV_INTERFACE {
-            let recommendations = self.read.cpuid1(eax);
+        if self.hypervisor_info.eax >= EAX_MS_HV_IMPLEMENTATION_RECOMMENDATIONS
+            && self.interface() == HV_INTERFACE
+        {
+            let recommendations = self.read.cpuid1(EAX_MS_HV_IMPLEMENTATION_RECOMMENDATIONS);
             Some(HvImplRecommendations {
                 eax: recommendations.eax,
                 ebx: recommendations.ebx,
@@ -6073,14 +6075,63 @@ impl<R: CpuIdReader> HypervisorInfo<R> {
     }
 
     pub fn hv_implementation_limits(&self) -> Option<HvImplLimits> {
-        let eax = self.hypervisor_info.eax;
-        if eax >= EAX_MS_HV_IMPLEMENTATION_LIMITS && self.interface() == HV_INTERFACE {
-            let limits = self.read.cpuid1(eax);
+        if self.hypervisor_info.eax >= EAX_MS_HV_IMPLEMENTATION_LIMITS
+            && self.interface() == HV_INTERFACE
+        {
+            let limits = self.read.cpuid1(EAX_MS_HV_IMPLEMENTATION_LIMITS);
             Some(HvImplLimits {
                 eax: limits.eax,
                 ebx: limits.ebx,
                 ecx: limits.ecx,
                 _edx: limits.edx,
+            })
+        } else {
+            None
+        }
+    }
+
+    pub fn hv_implementation_hardware_features(&self) -> Option<HvImplHardwareFeatures> {
+        if self.hypervisor_info.eax >= EAX_MS_HV_IMPLEMENTATION_HARDWARE_FEATURES
+            && self.interface() == HV_INTERFACE
+        {
+            let impl_hw_features = self.read.cpuid1(EAX_MS_HV_IMPLEMENTATION_HARDWARE_FEATURES);
+            Some(HvImplHardwareFeatures {
+                eax: impl_hw_features.eax,
+                ebx: impl_hw_features.ebx,
+                ecx: impl_hw_features.ecx,
+                edx: impl_hw_features.edx,
+            })
+        } else {
+            None
+        }
+    }
+
+    pub fn hv_nested_features(&self) -> Option<HvNestedFeatures> {
+        if self.hypervisor_info.eax >= EAX_MS_HV_NESTED_FEATURES && self.interface() == HV_INTERFACE
+        {
+            let nested_features = self.read.cpuid1(EAX_MS_HV_NESTED_FEATURES);
+            Some(HvNestedFeatures {
+                eax: nested_features.eax,
+                ebx: nested_features.ebx,
+                ecx: nested_features.ecx,
+                edx: nested_features.edx,
+            })
+        } else {
+            None
+        }
+    }
+
+    pub fn hv_nested_virtualization_features(&self) -> Option<HvNestedVirtualizationFeatures> {
+        if self.hypervisor_info.eax >= EAX_MS_HV_NESTED_VIRTUALIZATION_FEATURES
+            && self.interface() == HV_INTERFACE
+        {
+            let nested_virtualization_features =
+                self.read.cpuid1(EAX_MS_HV_NESTED_VIRTUALIZATION_FEATURES);
+            Some(HvNestedVirtualizationFeatures {
+                eax: nested_virtualization_features.eax,
+                ebx: nested_virtualization_features.ebx,
+                ecx: nested_virtualization_features.ecx,
+                edx: nested_virtualization_features.edx,
             })
         } else {
             None
@@ -6114,6 +6165,8 @@ impl<R: CpuIdReader> HypervisorInfo<R> {
 pub struct HvSystemIdentity {
     eax: u32,
     ebx: u32,
+    _ecx: u32,
+    _edx: u32,
 }
 
 impl HvSystemIdentity {
@@ -6132,11 +6185,11 @@ impl HvSystemIdentity {
 
 bitflags! {
     struct HvPartitionPrivilegeMask: u64 {
-        const ACCESS_VP_RUN_TIME_REG = 0;
-        const ACCESS_PARTITION_REFERENCE_COUNTER = 1;
-        const ACCESS_SYNIC_REGS = 1 << 1;
-        const ACCESS_SYNTHETIC_TIMER_REGS = 1 << 2;
-        const ACCESS_INTR_CTRL_REGS = 1 << 3;
+        const ACCESS_VP_RUN_TIME_REG = 1;
+        const ACCESS_PARTITION_REFERENCE_COUNTER = 1 << 1;
+        const ACCESS_SYNIC_REGS = 1 << 2;
+        const ACCESS_SYNTHETIC_TIMER_REGS = 1 << 3;
+        const ACCESS_INTR_CTRL_REGS = 1 << 4;
     }
 }
 
@@ -6251,6 +6304,20 @@ impl HvImplLimits {
 }
 
 pub struct HvImplHardwareFeatures {
+    eax: u32,
+    ebx: u32,
+    ecx: u32,
+    edx: u32,
+}
+
+pub struct HvNestedFeatures {
+    eax: u32,
+    ebx: u32,
+    ecx: u32,
+    edx: u32,
+}
+
+pub struct HvNestedVirtualizationFeatures {
     eax: u32,
     ebx: u32,
     ecx: u32,
